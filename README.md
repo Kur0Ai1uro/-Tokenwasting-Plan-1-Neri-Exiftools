@@ -2,6 +2,7 @@
 
 # 音理 ExifTools
 
+<img width="1600" height="500" alt="未标题-1" src="https://github.com/user-attachments/assets/0f019a55-e150-486f-815d-035f5be6bac3" />
 
 风又音理主题的 Android 图片元数据查看与编辑器。Kotlin + Jetpack Compose，最低 Android 8.0。
 
