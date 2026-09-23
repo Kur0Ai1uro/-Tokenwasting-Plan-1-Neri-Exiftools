@@ -3,6 +3,7 @@ package com.neri.exiftools.data
 import androidx.exifinterface.media.ExifInterface
 import com.neri.exiftools.model.CommonExifFields
 import com.neri.exiftools.model.CustomField
+import com.neri.exiftools.util.CustomXmp
 import com.neri.exiftools.util.DateParser
 import com.neri.exiftools.util.GpsTagClearList
 import com.neri.exiftools.util.OffsetTimeParser
@@ -37,15 +38,30 @@ class MetadataWriter {
 
         writeGps(exif, fields)
         for (tag in tagsToClear) {
-            if (WritableTagCatalog.find(tag) != null) {
-                writeText(exif, tag, null)
+            val spec = WritableTagCatalog.resolve(tag)
+            if (spec != null) writeText(exif, spec.tag, null)
+        }
+        val freeFields = mutableListOf<CustomField>()
+        for (field in customFields) {
+            val spec = WritableTagCatalog.resolve(field.tag)
+            if (spec == null) {
+                if (field.tag.isNotBlank() && field.value.isNotBlank()) freeFields += field
+            } else {
+                writeText(exif, spec.tag, WritableTagCatalog.normalize(spec.tag, field.value))
             }
         }
-        for (field in customFields) {
-            if (WritableTagCatalog.find(field.tag) == null) continue
-            writeText(exif, field.tag, WritableTagCatalog.normalize(field.tag, field.value))
+        val existingXmp = exif.getAttribute(ExifInterface.TAG_XMP)
+        val mergedXmp = CustomXmp.merge(existingXmp, freeFields)
+        if (mergedXmp != existingXmp) {
+            writeText(exif, ExifInterface.TAG_XMP, mergedXmp)
         }
-        exif.saveAttributes()
+        try {
+            exif.saveAttributes()
+        } catch (error: Exception) {
+            if (mergedXmp == existingXmp) throw error
+            writeText(exif, ExifInterface.TAG_XMP, existingXmp)
+            exif.saveAttributes()
+        }
     }
 
     private fun writeGps(exif: ExifInterface, fields: CommonExifFields) {

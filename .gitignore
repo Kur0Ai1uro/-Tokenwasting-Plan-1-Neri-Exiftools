@@ -2,6 +2,7 @@
 .gradle/
 .kotlin/
 .idea/
+.obsidian/
 .DS_Store
 local.properties
 

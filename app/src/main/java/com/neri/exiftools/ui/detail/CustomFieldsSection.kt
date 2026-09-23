@@ -45,7 +45,7 @@ fun CustomFieldsSection(
     fields: List<CustomField>,
     enabled: Boolean,
     colors: TextFieldColors,
-    onAdd: (String) -> Unit,
+    onAdd: (String, String) -> Unit,
     onValueChange: (String, String) -> Unit,
     onRemove: (String) -> Unit,
 ) {
@@ -54,12 +54,12 @@ fun CustomFieldsSection(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OnriSectionTitle("自定义字段")
         Text(
-            text = "挑一个音理能写回去的字段，再填上你想要的值。留空保存就会清掉它。",
+            text = "自己写字段名和内容。名字对上音理认识的标签就会写进对应项，别的名字也会一起保存。留空内容再保存就会清掉它。",
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurface,
         )
         fields.forEach { field ->
-            val spec = WritableTagCatalog.find(field.tag) ?: return@forEach
+            val spec = WritableTagCatalog.resolve(field.tag)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -69,17 +69,22 @@ fun CustomFieldsSection(
                     onValueChange = { onValueChange(field.tag, it) },
                     enabled = enabled,
                     modifier = Modifier.weight(1f),
-                    label = { Text(spec.label, style = MaterialTheme.typography.titleSmall) },
-                    placeholder = spec.hint.takeIf { it.isNotBlank() }?.let {
+                    label = { Text(spec?.label ?: field.tag, style = MaterialTheme.typography.titleSmall) },
+                    placeholder = spec?.hint?.takeIf { it.isNotBlank() }?.let {
                         { Text(it, style = MaterialTheme.typography.bodyLarge) }
                     },
-                    supportingText = { Text(spec.tag, style = MaterialTheme.typography.bodySmall) },
+                    supportingText = {
+                        Text(
+                            spec?.tag ?: "自定义",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
-                        keyboardType = when (spec.kind) {
-                            TagValueKind.TEXT -> KeyboardType.Text
+                        keyboardType = when (spec?.kind) {
                             TagValueKind.INTEGER -> KeyboardType.Number
                             TagValueKind.RATIONAL -> KeyboardType.Decimal
+                            else -> KeyboardType.Text
                         },
                     ),
                     colors = colors,
@@ -87,7 +92,11 @@ fun CustomFieldsSection(
                     shape = RoundedCornerShape(18.dp),
                 )
                 IconButton(onClick = { onRemove(field.tag) }, enabled = enabled) {
-                    Icon(Icons.Outlined.Close, contentDescription = "移除${spec.label}", tint = scheme.primary)
+                    Icon(
+                        Icons.Outlined.Close,
+                        contentDescription = "移除${spec?.label ?: field.tag}",
+                        tint = scheme.primary,
+                    )
                 }
             }
         }
@@ -104,8 +113,8 @@ fun CustomFieldsSection(
         AddFieldDialog(
             usedTags = fields.map { it.tag }.toSet(),
             colors = colors,
-            onAdd = { tag ->
-                onAdd(tag)
+            onAdd = { name, value ->
+                onAdd(name, value)
                 showPicker = false
             },
             onDismiss = { showPicker = false },
@@ -117,16 +126,18 @@ fun CustomFieldsSection(
 private fun AddFieldDialog(
     usedTags: Set<String>,
     colors: TextFieldColors,
-    onAdd: (String) -> Unit,
+    onAdd: (String, String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var query by remember { mutableStateOf("") }
-    val available = remember(usedTags, query) {
+    var name by remember { mutableStateOf("") }
+    var value by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
+    val suggestions = remember(usedTags, name) {
         WritableTagCatalog.tags.filter { spec ->
             spec.tag !in usedTags && (
-                query.isBlank() ||
-                    spec.label.contains(query.trim(), ignoreCase = true) ||
-                    spec.tag.contains(query.trim(), ignoreCase = true)
+                name.isBlank() ||
+                    spec.label.contains(name.trim(), ignoreCase = true) ||
+                    spec.tag.contains(name.trim(), ignoreCase = true)
                 )
         }
     }
@@ -141,34 +152,45 @@ private fun AddFieldDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        error = null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
-                    label = { Text("搜索字段", style = MaterialTheme.typography.titleSmall) },
+                    label = { Text("字段名", style = MaterialTheme.typography.titleSmall) },
+                    placeholder = { Text("比如 作者，或自己起一个名字", style = MaterialTheme.typography.bodyLarge) },
                     colors = colors,
                     textStyle = MaterialTheme.typography.bodyLarge,
                     shape = RoundedCornerShape(18.dp),
                 )
-                if (available.isEmpty()) {
-                    Text(
-                        if (usedTags.size == WritableTagCatalog.tags.size) "能加的字段都在上面啦" else "没有找到这个字段",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = scheme.onSurface,
-                    )
-                } else {
+                OutlinedTextField(
+                    value = value,
+                    onValueChange = { value = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    label = { Text("字段内容", style = MaterialTheme.typography.titleSmall) },
+                    colors = colors,
+                    textStyle = MaterialTheme.typography.bodyLarge,
+                    shape = RoundedCornerShape(18.dp),
+                )
+                if (!error.isNullOrBlank()) {
+                    Text(error.orEmpty(), color = scheme.error, style = MaterialTheme.typography.bodyMedium)
+                }
+                if (suggestions.isNotEmpty()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 320.dp)
+                            .heightIn(max = 180.dp)
                             .verticalScroll(rememberScrollState()),
                     ) {
-                        available.forEach { spec ->
+                        suggestions.forEach { spec ->
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable { onAdd(spec.tag) }
-                                    .padding(vertical = 10.dp),
+                                    .clickable { name = spec.label }
+                                    .padding(vertical = 8.dp),
                             ) {
                                 Text(spec.label, style = MaterialTheme.typography.titleSmall, color = scheme.onSurface)
                                 Text(
@@ -184,7 +206,19 @@ private fun AddFieldDialog(
                 }
             }
         },
-        confirmButton = {},
+        confirmButton = {
+            TextButton(
+                onClick = {
+                    if (name.isBlank()) {
+                        error = "先写字段名"
+                    } else if (WritableTagCatalog.resolve(name)?.tag in usedTags || name.trim() in usedTags) {
+                        error = "这个字段已经有了"
+                    } else {
+                        onAdd(name.trim(), value)
+                    }
+                },
+            ) { Text("添加") }
+        },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }
         },

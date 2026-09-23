@@ -136,7 +136,7 @@ fun HomeScreen(
 
             Spacer(Modifier.weight(1f))
             Text(
-                text = "v1.0",
+                text = "v1.1",
                 style = MaterialTheme.typography.titleSmall,
                 color = scheme.primary,
                 textAlign = TextAlign.Center,

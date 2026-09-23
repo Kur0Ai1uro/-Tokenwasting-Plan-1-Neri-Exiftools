@@ -49,17 +49,18 @@ object FieldValidator {
         val errors = mutableListOf<String>()
         val seen = mutableSetOf<String>()
         for (field in fields) {
-            val spec = WritableTagCatalog.find(field.tag)
-            if (spec == null) {
-                errors += "音理写不进「${field.tag}」"
+            val spec = WritableTagCatalog.resolve(field.tag)
+            val key = (spec?.tag ?: field.tag).trim()
+            if (key.isEmpty()) {
+                errors += "字段名不能空着"
                 continue
             }
-            if (!seen.add(field.tag)) {
-                errors += "「${spec.label}」重复了"
+            if (!seen.add(key.lowercase())) {
+                errors += "「${spec?.label ?: key}」重复了"
                 continue
             }
-            if (field.value.isBlank()) continue
-            if (WritableTagCatalog.normalize(field.tag, field.value) == null) {
+            if (spec == null || field.value.isBlank()) continue
+            if (WritableTagCatalog.normalize(spec.tag, field.value) == null) {
                 errors += when (spec.kind) {
                     TagValueKind.INTEGER -> "「${spec.label}」要写成整数"
                     TagValueKind.RATIONAL -> "「${spec.label}」要写成数字或分数，比如 ${spec.hint}"

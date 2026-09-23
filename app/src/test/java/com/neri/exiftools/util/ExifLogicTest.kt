@@ -121,12 +121,16 @@ class FieldValidatorTest {
             listOf(
                 CustomField("PhotographicSensitivity", "iso"),
                 CustomField("FNumber", "wide"),
-                CustomField("NotARealTag", "1"),
             ),
         )
         assertTrue(errors.any { it.contains("ISO") })
         assertTrue(errors.any { it.contains("光圈") })
-        assertTrue(errors.any { it.contains("NotARealTag") })
+        assertTrue(
+            FieldValidator.validate(
+                CommonExifFields(),
+                listOf(CustomField("旅途备注", "和音理出门")),
+            ).isEmpty(),
+        )
     }
 }
 
@@ -179,6 +183,66 @@ class MediaUrisTest {
         val colorOs = "content://media/picker/0/com.coloros.gallery3d.photopicker/media/2036?requireOriginal=1"
         assertTrue(com.neri.exiftools.data.MediaUris.isPickerUri(colorOs))
         assertFalse(com.neri.exiftools.data.MediaUris.isPickerUri("content://media/external/images/media/12"))
+    }
+
+    @Test
+    fun pickerUri_exposesMediaStoreId() {
+        val getContent = "content://media/picker_get_content/0/com.coloros.gallery3d.photopicker/media/2084"
+        assertEquals(2084L, com.neri.exiftools.data.MediaUris.mediaStoreId(getContent))
+        assertEquals(
+            2036L,
+            com.neri.exiftools.data.MediaUris.mediaStoreId(
+                "content://media/picker/0/com.coloros.gallery3d.photopicker/media/2036?requireOriginal=1",
+            ),
+        )
+        assertEquals(12L, com.neri.exiftools.data.MediaUris.mediaStoreId("content://media/external/images/media/12"))
+    }
+
+    @Test
+    fun mediaStoreId_readsWrappedGalleryLinks() {
+        val photos = "content://com.google.android.apps.photos.contentprovider/0/1/content%3A%2F%2Fmedia%2Fexternal%2Fimages%2Fmedia%2F88/ORIGINAL/NONE/image%2Fjpeg/1"
+        val document = "content://com.android.providers.media.documents/document/image%3A42"
+        assertEquals(88L, com.neri.exiftools.data.MediaUris.mediaStoreId(photos))
+        assertEquals(42L, com.neri.exiftools.data.MediaUris.mediaStoreId(document))
+        assertTrue(com.neri.exiftools.data.MediaUris.isReadOnlyGalleryUri(photos))
+        assertTrue(com.neri.exiftools.data.MediaUris.isReadOnlyGalleryUri("content://com.miui.gallery.open/raw"))
+        assertFalse(com.neri.exiftools.data.MediaUris.isReadOnlyGalleryUri("content://media/external/images/media/12"))
+        assertEquals(
+            "相册只让音理看这张图，原图改不了。",
+            com.neri.exiftools.data.MediaUris.userFacing("PhotoPicker Uris can only be accessed to read."),
+        )
+    }
+}
+
+class CustomXmpTest {
+    @Test
+    fun roundTrip_keepsCustomNameAndValue() {
+        val fields = listOf(
+            com.neri.exiftools.model.CustomField("旅途备注", "和音理出门"),
+            com.neri.exiftools.model.CustomField("天气", "晴"),
+        )
+        val packet = com.neri.exiftools.util.CustomXmp.merge(null, fields)
+        assertEquals(fields, com.neri.exiftools.util.CustomXmp.read(packet))
+    }
+
+    @Test
+    fun merge_keepsExistingXmpAndDropsRemovedFields() {
+        val original = """
+            <x:xmpmeta xmlns:x="adobe:ns:meta/">
+             <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+              <rdf:Description>相机原来的记录</rdf:Description>
+             </rdf:RDF>
+            </x:xmpmeta>
+        """.trimIndent()
+        val withField = com.neri.exiftools.util.CustomXmp.merge(
+            original,
+            listOf(com.neri.exiftools.model.CustomField("心情", "开心")),
+        )
+        assertTrue(withField!!.contains("相机原来的记录"))
+        assertEquals("开心", com.neri.exiftools.util.CustomXmp.read(withField).single().value)
+        val cleared = com.neri.exiftools.util.CustomXmp.merge(withField, emptyList())
+        assertTrue(cleared!!.contains("相机原来的记录"))
+        assertTrue(com.neri.exiftools.util.CustomXmp.read(cleared).isEmpty())
     }
 }
 

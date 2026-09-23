@@ -64,8 +64,16 @@ object WritableTagCatalog {
 
     fun find(tag: String): WritableTag? = byTag[tag]
 
+    fun resolve(name: String): WritableTag? {
+        val text = name.trim()
+        if (text.isEmpty()) return null
+        return find(text)
+            ?: tags.firstOrNull { it.tag.equals(text, ignoreCase = true) }
+            ?: tags.firstOrNull { it.label.equals(text, ignoreCase = true) }
+    }
+
     fun normalize(tag: String, raw: String): String? {
-        val spec = byTag[tag] ?: return null
+        val spec = resolve(tag) ?: return null
         val text = raw.trim()
         if (text.isEmpty()) return null
         return when (spec.kind) {

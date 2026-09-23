@@ -123,11 +123,17 @@ class ExifViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(fields = transform(it.fields)) }
     }
 
-    fun addCustomField(tag: String) {
-        if (WritableTagCatalog.find(tag) == null) return
+    fun addCustomField(name: String, value: String) {
+        val spec = WritableTagCatalog.resolve(name)
+        val tag = spec?.tag ?: name.trim()
+        if (tag.isEmpty()) return
         _uiState.update { state ->
-            if (state.customFields.any { it.tag == tag }) state
-            else state.copy(customFields = state.customFields + CustomField(tag, ""))
+            val exists = state.customFields.any { field ->
+                field.tag.equals(tag, ignoreCase = true) ||
+                    WritableTagCatalog.resolve(field.tag)?.tag == tag
+            }
+            if (exists) state
+            else state.copy(customFields = state.customFields + CustomField(tag, value))
         }
     }
 

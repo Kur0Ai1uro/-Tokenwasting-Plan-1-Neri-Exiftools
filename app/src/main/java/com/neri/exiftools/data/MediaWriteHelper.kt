@@ -1,6 +1,7 @@
 package com.neri.exiftools.data
 
 import android.app.RecoverableSecurityException
+import android.content.ContentUris
 import android.content.Context
 import android.content.IntentSender
 import android.net.Uri
@@ -14,20 +15,32 @@ import java.io.IOException
 class MediaWriteHelper(private val context: Context) {
     fun resolveMediaStoreUri(uri: Uri): Uri? {
         if (isExternalMediaUri(uri)) return uri
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            runCatching { MediaStore.getMediaUri(context, uri) }.getOrNull()?.let { return it }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            runCatching { MediaStore.getMediaUri(context, uri) }
+                .getOrNull()
+                ?.takeIf { isExternalMediaUri(it) }
+                ?.let { return it }
         }
-        return findByDisplayNameAndSize(uri)
+        MediaUris.mediaStoreId(uri.toString())?.let { id ->
+            return ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+        }
+        return findByDisplayNameAndSize(uri)?.takeIf { isExternalMediaUri(it) }
     }
 
     fun createWriteRequest(uri: Uri): IntentSenderRequest? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
         val mediaUri = resolveMediaStoreUri(uri) ?: return null
-        val request = MediaStore.createWriteRequest(context.contentResolver, listOf(mediaUri))
-        return IntentSenderRequest.Builder(request.intentSender).build()
+        if (MediaUris.isReadOnlyGalleryUri(mediaUri)) return null
+        return runCatching {
+            val request = MediaStore.createWriteRequest(context.contentResolver, listOf(mediaUri))
+            IntentSenderRequest.Builder(request.intentSender).build()
+        }.getOrNull()
     }
 
     fun overwrite(uri: Uri, file: File): OverwriteResult {
+        if (MediaUris.isReadOnlyGalleryUri(uri)) {
+            return OverwriteResult.Denied(MediaUris.READ_ONLY_MESSAGE)
+        }
         return try {
             writeToUri(uri, file)
             OverwriteResult.Success
@@ -35,10 +48,10 @@ class MediaWriteHelper(private val context: Context) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && security is RecoverableSecurityException) {
                 OverwriteResult.NeedUserConsent(security.userAction.actionIntent.intentSender)
             } else {
-                OverwriteResult.Denied(security.message ?: "没有写入原图的权限")
+                OverwriteResult.Denied(MediaUris.userFacing(security.message))
             }
-        } catch (io: IOException) {
-            OverwriteResult.Denied(io.message ?: "无法覆盖原图")
+        } catch (error: Exception) {
+            OverwriteResult.Denied(MediaUris.userFacing(error.message))
         }
     }
 
@@ -53,32 +66,40 @@ class MediaWriteHelper(private val context: Context) {
 
     private fun findByDisplayNameAndSize(uri: Uri): Uri? {
         val (name, size) = queryNameAndSize(uri) ?: return null
-        val projection = arrayOf(MediaStore.Images.Media._ID, OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)
-        context.contentResolver.query(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            projection,
-            "${OpenableColumns.DISPLAY_NAME}=? AND ${OpenableColumns.SIZE}=?",
-            arrayOf(name, size.toString()),
-            null,
-        )?.use { cursor ->
-            if (cursor.moveToFirst()) {
-                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
-                return Uri.withAppendedPath(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id.toString())
-            }
+        if (name.isBlank() || name == "image") return null
+        val selection = if (size > 0) {
+            "${OpenableColumns.DISPLAY_NAME}=? AND ${OpenableColumns.SIZE}=?" to arrayOf(name, size.toString())
+        } else {
+            "${OpenableColumns.DISPLAY_NAME}=?" to arrayOf(name)
         }
-        return null
+        return runCatching {
+            context.contentResolver.query(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                arrayOf(MediaStore.Images.Media._ID),
+                selection.first,
+                selection.second,
+                null,
+            )?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                if (size <= 0 && cursor.count != 1) return@use null
+                val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
+                ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+            }
+        }.getOrNull()
     }
 
     private fun queryNameAndSize(uri: Uri): Pair<String, Long>? {
-        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
-            ?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val name = cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME)) ?: return null
-                    val size = cursor.getLong(cursor.getColumnIndexOrThrow(OpenableColumns.SIZE))
-                    return name to size
+        return runCatching {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+                ?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    val name = if (nameIndex >= 0) cursor.getString(nameIndex) else null
+                    val size = if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else 0L
+                    (name ?: return@use null) to size
                 }
-            }
-        return null
+        }.getOrNull()
     }
 
     private fun isExternalMediaUri(uri: Uri): Boolean {

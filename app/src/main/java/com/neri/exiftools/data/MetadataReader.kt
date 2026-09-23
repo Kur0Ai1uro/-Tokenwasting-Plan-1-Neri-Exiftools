@@ -10,6 +10,7 @@ import com.neri.exiftools.model.CustomField
 import com.neri.exiftools.model.MetadataSnapshot
 import com.neri.exiftools.model.TagGroup
 import com.neri.exiftools.model.TagItem
+import com.neri.exiftools.util.CustomXmp
 import com.neri.exiftools.util.GpsConverter
 import com.neri.exiftools.util.WritableTagCatalog
 import java.io.File
@@ -42,10 +43,14 @@ class MetadataReader {
     }
 
     private fun readCustom(exif: ExifInterface): List<CustomField> {
-        return WritableTagCatalog.tags.mapNotNull { spec ->
+        val fromTags = WritableTagCatalog.tags.mapNotNull { spec ->
             val value = exif.getAttribute(spec.tag)?.trim().orEmpty()
             if (value.isEmpty()) null else CustomField(tag = spec.tag, value = value)
         }
+        val known = fromTags.map { it.tag }.toSet()
+        val fromXmp = CustomXmp.read(exif.getAttribute(ExifInterface.TAG_XMP))
+            .filter { it.tag !in known }
+        return fromTags + fromXmp
     }
 
     private fun readWithExifInterface(exif: ExifInterface): CommonExifFields {

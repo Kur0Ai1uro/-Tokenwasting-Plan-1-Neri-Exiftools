@@ -66,10 +66,22 @@ class ExifRepository(context: Context) {
             writer.write(edited, fields, customFields, tagsToClear)
         } catch (error: Exception) {
             edited.delete()
-            return PrepareSaveResult.Error("写入失败：${error.message ?: "未知错误"}")
+            return PrepareSaveResult.Error("写入失败：${error.message?.let(MediaUris::userFacing) ?: "未知错误"}")
         }
 
-        val mediaUri = mediaWriteHelper.resolveMediaStoreUri(sourceUri) ?: sourceUri
+        val resolved = mediaWriteHelper.resolveMediaStoreUri(sourceUri)
+        val mediaUri = when {
+            resolved != null && !MediaUris.isReadOnlyGalleryUri(resolved) -> resolved
+            !MediaUris.isReadOnlyGalleryUri(sourceUri) -> sourceUri
+            else -> null
+        }
+        if (mediaUri == null) {
+            return PrepareSaveResult.NeedSaveAs(
+                editedFile = edited,
+                backupName = backup.displayName,
+                reason = MediaUris.READ_ONLY_MESSAGE,
+            )
+        }
         when (val overwrite = mediaWriteHelper.overwrite(mediaUri, edited)) {
             MediaWriteHelper.OverwriteResult.Success -> {
                 copyFast(edited, workingFile)
@@ -134,7 +146,7 @@ class ExifRepository(context: Context) {
             PrepareSaveResult.NeedSaveAs(
                 editedFile = editedFile,
                 backupName = backupName,
-                reason = error.message ?: "覆盖原图失败",
+                reason = MediaUris.userFacing(error.message),
             )
         }
     }

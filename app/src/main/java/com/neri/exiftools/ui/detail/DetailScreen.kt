@@ -103,7 +103,7 @@ fun DetailScreen(
     onRestore: () -> Unit,
     onSearchChange: (String) -> Unit,
     onFieldsChange: ((CommonExifFields) -> CommonExifFields) -> Unit,
-    onAddCustomField: (String) -> Unit,
+    onAddCustomField: (String, String) -> Unit,
     onUpdateCustomField: (String, String) -> Unit,
     onRemoveCustomField: (String) -> Unit,
 ) {
