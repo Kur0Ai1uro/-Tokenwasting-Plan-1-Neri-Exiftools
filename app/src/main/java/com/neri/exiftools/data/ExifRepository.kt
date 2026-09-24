@@ -8,6 +8,7 @@ import com.neri.exiftools.model.CustomField
 import com.neri.exiftools.model.ImageFormat
 import com.neri.exiftools.model.LoadedImage
 import com.neri.exiftools.util.FieldValidator
+import com.neri.exiftools.util.SaveLocation
 import java.io.File
 import java.io.IOException
 
@@ -151,21 +152,52 @@ class ExifRepository(context: Context) {
         }
     }
 
+    fun saveCopy(
+        workingFile: File,
+        displayName: String,
+        format: ImageFormat,
+        fields: CommonExifFields,
+        customFields: List<CustomField> = emptyList(),
+        tagsToClear: Set<String> = emptySet(),
+        location: SaveLocation,
+    ): PrepareSaveResult {
+        val errors = FieldValidator.validate(fields, customFields)
+        if (errors.isNotEmpty()) {
+            return PrepareSaveResult.ValidationError(errors)
+        }
+        val backup = try {
+            backupManager.backup(workingFile, displayName, format)
+        } catch (error: Exception) {
+            return PrepareSaveResult.Error("备份失败：${error.message ?: "未知错误"}")
+        }
+        val edited = File(workingFile.parentFile, "neri_edited_${System.currentTimeMillis()}.${format.extension}")
+        try {
+            copyFast(workingFile, edited)
+            writer.write(edited, fields, customFields, tagsToClear)
+        } catch (error: Exception) {
+            edited.delete()
+            return PrepareSaveResult.Error("写入失败：${error.message?.let(MediaUris::userFacing) ?: "未知错误"}")
+        }
+        return saveAs(edited, workingFile, displayName, format, backup.displayName, location)
+    }
+
     fun saveAs(
         editedFile: File,
         workingFile: File,
         displayName: String,
         format: ImageFormat,
         backupName: String,
+        location: SaveLocation = SaveLocation(),
     ): PrepareSaveResult {
         return try {
-            val savedCopy = backupManager.saveEditedCopy(editedFile, displayName, format)
+            val savedCopy = backupManager.saveEditedCopy(editedFile, displayName, format, location)
             copyFast(editedFile, workingFile)
             val saved = reader.read(workingFile)
             editedFile.delete()
             PrepareSaveResult.SavedAs(
                 backupName = backupName,
                 newName = savedCopy.displayName,
+                savedPath = savedCopy.savedPath.ifBlank { location.displayLabel() },
                 workingFile = workingFile,
                 fields = saved.fields,
                 groups = saved.groups,
@@ -197,6 +229,7 @@ sealed class PrepareSaveResult {
     data class SavedAs(
         val backupName: String,
         val newName: String,
+        val savedPath: String = "",
         val workingFile: File,
         val fields: com.neri.exiftools.model.CommonExifFields,
         val groups: List<com.neri.exiftools.model.TagGroup>,

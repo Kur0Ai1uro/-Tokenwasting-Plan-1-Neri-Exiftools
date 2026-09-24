@@ -54,7 +54,7 @@ fun CustomFieldsSection(
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         OnriSectionTitle("自定义字段")
         Text(
-            text = "自己写字段名和内容。名字对上音理认识的标签就会写进对应项，别的名字也会一起保存。留空内容再保存就会清掉它。",
+            text = "对得上音理认识的名字，会写成标准字段，别的软件也能看见。自己起的名字也能保存，但多半只有音理打开才看得到。内容留空再保存就会清掉。",
             style = MaterialTheme.typography.bodyMedium,
             color = scheme.onSurface,
         )
@@ -75,7 +75,7 @@ fun CustomFieldsSection(
                     },
                     supportingText = {
                         Text(
-                            spec?.tag ?: "自定义",
+                            if (spec != null) "标准字段 · 别的软件也能看见" else "自定义 · 多半只有音理能看见",
                             style = MaterialTheme.typography.bodySmall,
                         )
                     },

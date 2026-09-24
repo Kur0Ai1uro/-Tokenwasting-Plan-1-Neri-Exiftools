@@ -67,6 +67,12 @@ fun NeriExifApp(viewModel: ExifViewModel = viewModel()) {
         }
     }
 
+    val pickFolder = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri ->
+        if (uri != null) viewModel.useSaveTree(uri)
+    }
+
     val requestClose = {
         val current = latestState.value
         when {
@@ -121,11 +127,20 @@ fun NeriExifApp(viewModel: ExifViewModel = viewModel()) {
                     onAddCustomField = viewModel::addCustomField,
                     onUpdateCustomField = viewModel::updateCustomField,
                     onRemoveCustomField = viewModel::removeCustomField,
+                    saveLocation = state.saveLocation,
+                    onApplySavePath = viewModel::applySavePath,
+                    onPickSaveFolder = { pickFolder.launch(null) },
+                    onResetSaveLocation = viewModel::resetSaveLocation,
+                    onSaveCopy = viewModel::saveToChosenLocation,
                 )
             } else {
                 HomeScreen(
                     isLoading = state.isLoading,
+                    saveLocation = state.saveLocation,
                     onPickImage = pickImage,
+                    onApplySavePath = viewModel::applySavePath,
+                    onPickSaveFolder = { pickFolder.launch(null) },
+                    onResetSaveLocation = viewModel::resetSaveLocation,
                 )
             }
             SnackbarHost(
@@ -158,10 +173,10 @@ fun NeriExifApp(viewModel: ExifViewModel = viewModel()) {
             shape = RoundedCornerShape(28.dp),
             title = { Text("音理没能改到原图") },
             text = {
-                Text("${prompt.reason}\n原图已经备份为 ${prompt.backupName}。要不要让音理另存一份？")
+                Text("${prompt.reason}\n原图已经备份为 ${prompt.backupName}。修改后的照片会存到 ${state.saveLocation.displayLabel()}。")
             },
             confirmButton = {
-                TextButton(onClick = viewModel::confirmSaveAs) { Text("另存为新图") }
+                TextButton(onClick = viewModel::confirmSaveAs) { Text("存到所选位置") }
             },
             dismissButton = {
                 TextButton(onClick = viewModel::cancelSaveAs) { Text("取消") }

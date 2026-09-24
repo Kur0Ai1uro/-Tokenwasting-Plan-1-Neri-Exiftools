@@ -1,6 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
+}
+
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
 }
 
 android {
@@ -11,9 +20,20 @@ android {
         applicationId = "com.neri.exiftools"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.1"
+        versionCode = 10
+        versionName = "1.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        if (keystorePropertiesFile.exists()) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -23,6 +43,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (keystorePropertiesFile.exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -46,13 +69,13 @@ kotlin {
     }
 }
 
-val publishDebugApk = tasks.register("publishDebugApk") {
-    doNotTrackState("安装包只放到 dist，不进 Git。")
+val publishReleaseApk = tasks.register("publishReleaseApk") {
+    doNotTrackState("正式签名的安装包只放到 dist，不进 Git。")
     doLast {
         val version = android.defaultConfig.versionName
         val apkName = "音理ExifTools-$version.apk"
         val distDir = rootProject.layout.projectDirectory.dir("dist").asFile
-        val source = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk").get().asFile
+        val source = layout.buildDirectory.file("outputs/apk/release/app-release.apk").get().asFile
         val target = distDir.resolve(apkName)
         distDir.mkdirs()
         distDir.listFiles()
@@ -63,8 +86,8 @@ val publishDebugApk = tasks.register("publishDebugApk") {
     }
 }
 
-tasks.matching { it.name == "assembleDebug" }.configureEach {
-    finalizedBy(publishDebugApk)
+tasks.matching { it.name == "assembleRelease" }.configureEach {
+    finalizedBy(publishReleaseApk)
 }
 
 dependencies {

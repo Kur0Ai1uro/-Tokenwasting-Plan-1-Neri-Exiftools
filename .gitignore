@@ -5,6 +5,7 @@
 .obsidian/
 .DS_Store
 local.properties
+keystore.properties
 
 build/
 captures/

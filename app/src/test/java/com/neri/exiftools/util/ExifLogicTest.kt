@@ -246,6 +246,23 @@ class CustomXmpTest {
     }
 }
 
+class SavePathRulesTest {
+    @Test
+    fun normalize_addsPicturesAndRejectsParentSegments() {
+        assertEquals("Pictures/NeriExifTools/Edited", com.neri.exiftools.util.SavePathRules.normalize(""))
+        assertEquals("Pictures/音理/修好的", com.neri.exiftools.util.SavePathRules.normalize("音理/修好的"))
+        assertEquals("DCIM/音理", com.neri.exiftools.util.SavePathRules.normalize("DCIM/音理"))
+        assertEquals("Pictures/a/b", com.neri.exiftools.util.SavePathRules.normalize("Pictures//a/./b/"))
+        assertNull(com.neri.exiftools.util.SavePathRules.normalize("Pictures/../secret"))
+    }
+
+    @Test
+    fun treeLabel_readsDecodedFolderName() {
+        val uri = "content://com.android.externalstorage.documents/tree/primary%3ADownload%2F%E9%9F%B3%E7%90%86"
+        assertEquals("Download/音理", com.neri.exiftools.util.SavePathRules.treeLabel(uri))
+    }
+}
+
 class OffsetTimeParserTest {
     @Test
     fun acceptsStandardOffsets() {

@@ -1,6 +1,7 @@
 package com.neri.exiftools.ui
 
 import android.app.Application
+import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.result.IntentSenderRequest
@@ -8,10 +9,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.neri.exiftools.data.ExifRepository
 import com.neri.exiftools.data.PrepareSaveResult
+import com.neri.exiftools.data.SaveLocationStore
 import com.neri.exiftools.model.CommonExifFields
 import com.neri.exiftools.model.CustomField
 import com.neri.exiftools.model.ImageInfo
 import com.neri.exiftools.model.TagGroup
+import com.neri.exiftools.util.SaveLocation
+import com.neri.exiftools.util.SavePathRules
 import com.neri.exiftools.util.WritableTagCatalog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +45,7 @@ data class ExifUiState(
     val errorMessage: String? = null,
     val writeRequest: IntentSenderRequest? = null,
     val saveAsPrompt: SaveAsPrompt? = null,
+    val saveLocation: SaveLocation = SaveLocation(),
 ) {
     val hasChanges: Boolean
         get() = hasImage && (
@@ -56,8 +61,9 @@ data class SaveAsPrompt(
 
 class ExifViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = ExifRepository(application)
+    private val locationStore = SaveLocationStore(application)
 
-    private val _uiState = MutableStateFlow(ExifUiState())
+    private val _uiState = MutableStateFlow(ExifUiState(saveLocation = locationStore.load()))
     val uiState: StateFlow<ExifUiState> = _uiState.asStateFlow()
 
     private var workingFile: File? = null
@@ -181,12 +187,67 @@ class ExifViewModel(application: Application) : AndroidViewModel(application) {
     fun closeImage() {
         loadJob?.cancel()
         val preview = _uiState.value.preview
+        val location = _uiState.value.saveLocation
         workingFile?.delete()
         workingFile = null
         pendingEditedFile?.delete()
         pendingEditedFile = null
-        _uiState.value = ExifUiState()
+        _uiState.value = ExifUiState(saveLocation = location)
         recycleLater(preview, keep = null)
+    }
+
+    fun applySavePath(raw: String) {
+        val normalized = SavePathRules.normalize(raw)
+        if (normalized == null) {
+            showMessage("路径里不能有 ..")
+            return
+        }
+        locationStore.saveRelative(normalized)
+        publishSaveLocation()
+        showMessage("修改后的照片会存到 $normalized")
+    }
+
+    fun useSaveTree(uri: Uri) {
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        runCatching {
+            getApplication<Application>().contentResolver.takePersistableUriPermission(uri, flags)
+        }
+        locationStore.saveTree(uri.toString())
+        val label = publishSaveLocation().displayLabel()
+        showMessage("音理会把修改后的照片放进 $label")
+    }
+
+    fun resetSaveLocation() {
+        locationStore.reset()
+        publishSaveLocation()
+        showMessage("已经改回默认位置")
+    }
+
+    fun saveToChosenLocation() {
+        val current = _uiState.value
+        val info = current.imageInfo ?: return
+        val file = workingFile ?: return
+        val customFields = current.customFields
+        val tagsToClear = current.originalCustomFields
+            .map { it.tag }
+            .filter { tag -> customFields.none { it.tag == tag } }
+            .toSet()
+        val location = locationStore.load()
+        viewModelScope.launch {
+            _uiState.update { it.copy(isSaving = true, errorMessage = null) }
+            val result = withContext(Dispatchers.IO) {
+                repository.saveCopy(
+                    workingFile = file,
+                    displayName = info.displayName,
+                    format = info.format,
+                    fields = _uiState.value.fields,
+                    customFields = customFields,
+                    tagsToClear = tagsToClear,
+                    location = location,
+                )
+            }
+            handleSaveResult(result)
+        }
     }
 
     fun save() {
@@ -251,6 +312,7 @@ class ExifViewModel(application: Application) : AndroidViewModel(application) {
         val file = workingFile ?: return
         val info = _uiState.value.imageInfo ?: return
         val backupName = pendingBackupName ?: _uiState.value.saveAsPrompt?.backupName.orEmpty()
+        val location = locationStore.load()
         viewModelScope.launch {
             _uiState.update { it.copy(saveAsPrompt = null, isSaving = true) }
             val result = withContext(Dispatchers.IO) {
@@ -260,6 +322,7 @@ class ExifViewModel(application: Application) : AndroidViewModel(application) {
                     displayName = info.displayName,
                     format = info.format,
                     backupName = backupName,
+                    location = location,
                 )
             }
             handleSaveResult(result)
@@ -282,6 +345,12 @@ class ExifViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.update { it.copy(writeRequest = null) }
     }
 
+    private fun publishSaveLocation(): SaveLocation {
+        val location = locationStore.load()
+        _uiState.update { it.copy(saveLocation = location) }
+        return location
+    }
+
     private fun handleSaveResult(result: PrepareSaveResult) {
         when (result) {
             is PrepareSaveResult.Overwritten -> {
@@ -295,7 +364,7 @@ class ExifViewModel(application: Application) : AndroidViewModel(application) {
                         customFields = result.customFields,
                         originalCustomFields = result.customFields,
                         tagGroups = result.groups,
-                        snackbarMessage = "音理已经改好原图啦，备份是 ${result.backupName}",
+                        snackbarMessage = "已写回原来的那张图。备份是 ${result.backupName}。所选位置没有另存。",
                     )
                 }
             }
@@ -312,7 +381,7 @@ class ExifViewModel(application: Application) : AndroidViewModel(application) {
                         originalCustomFields = result.customFields,
                         tagGroups = result.groups,
                         saveAsPrompt = null,
-                        snackbarMessage = "音理把照片另存成了 ${result.newName}，备份是 ${result.backupName}",
+                        snackbarMessage = "已保存到 ${result.savedPath.ifBlank { "所选位置" }}，文件名是 ${result.newName}。原图备份是 ${result.backupName}。",
                     )
                 }
             }

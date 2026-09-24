@@ -82,6 +82,7 @@ import com.neri.exiftools.ui.theme.OnriGlassCard
 import com.neri.exiftools.ui.theme.OnriSectionTitle
 import com.neri.exiftools.ui.theme.OnriStage
 import com.neri.exiftools.ui.theme.onriTextFieldColors
+import com.neri.exiftools.ui.SaveLocationSection
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -106,6 +107,11 @@ fun DetailScreen(
     onAddCustomField: (String, String) -> Unit,
     onUpdateCustomField: (String, String) -> Unit,
     onRemoveCustomField: (String) -> Unit,
+    saveLocation: com.neri.exiftools.util.SaveLocation,
+    onApplySavePath: (String) -> Unit,
+    onPickSaveFolder: () -> Unit,
+    onResetSaveLocation: () -> Unit,
+    onSaveCopy: () -> Unit,
 ) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
@@ -159,8 +165,8 @@ fun DetailScreen(
                     }
                 },
                 actions = {
-                    TextButton(onClick = saveEdits, enabled = canSave) {
-                        Text("保存", color = if (canSave) scheme.primary else scheme.outline)
+                    TextButton(onClick = onSaveCopy, enabled = !isSaving && !isLoading) {
+                        Text("保存", color = if (!isSaving && !isLoading) scheme.primary else scheme.outline)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -316,9 +322,21 @@ fun DetailScreen(
                                 )
                             }
                         }
+                        SaveLocationSection(
+                            location = saveLocation,
+                            enabled = !isSaving && !isLoading,
+                            onApplyPath = onApplySavePath,
+                            onPickFolder = onPickSaveFolder,
+                            onReset = onResetSaveLocation,
+                        )
+                        Text(
+                            "保存到所选位置不会改原图。覆盖原图会先做备份，只有确认是同一张照片才会写回去。",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = scheme.onSurface,
+                        )
                         Button(
-                            onClick = saveEdits,
-                            enabled = canSave,
+                            onClick = onSaveCopy,
+                            enabled = !isSaving && !isLoading,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(52.dp),
@@ -330,7 +348,15 @@ fun DetailScreen(
                         ) {
                             OnriBowMark(modifier = Modifier.size(16.dp), color = scheme.onPrimary)
                             Spacer(Modifier.width(8.dp))
-                            Text("保存修改")
+                            Text("保存到所选位置")
+                        }
+                        OutlinedButton(
+                            onClick = saveEdits,
+                            enabled = canSave,
+                            modifier = Modifier.fillMaxWidth(),
+                            border = BorderStroke(1.dp, scheme.outline),
+                        ) {
+                            Text("覆盖原图", color = scheme.onSurface)
                         }
                     }
                 }

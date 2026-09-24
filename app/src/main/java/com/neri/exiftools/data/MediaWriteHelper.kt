@@ -22,7 +22,8 @@ class MediaWriteHelper(private val context: Context) {
                 ?.let { return it }
         }
         MediaUris.mediaStoreId(uri.toString())?.let { id ->
-            return ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+            val candidate = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+            if (mediaRowExists(candidate)) return candidate
         }
         return findByDisplayNameAndSize(uri)?.takeIf { isExternalMediaUri(it) }
     }
@@ -81,11 +82,23 @@ class MediaWriteHelper(private val context: Context) {
                 null,
             )?.use { cursor ->
                 if (!cursor.moveToFirst()) return@use null
-                if (size <= 0 && cursor.count != 1) return@use null
+                if (cursor.count != 1) return@use null
                 val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID))
                 ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
             }
         }.getOrNull()
+    }
+
+    private fun mediaRowExists(uri: Uri): Boolean {
+        return runCatching {
+            context.contentResolver.query(
+                uri,
+                arrayOf(MediaStore.Images.Media._ID),
+                null,
+                null,
+                null,
+            )?.use { it.moveToFirst() } == true
+        }.getOrDefault(false)
     }
 
     private fun queryNameAndSize(uri: Uri): Pair<String, Long>? {

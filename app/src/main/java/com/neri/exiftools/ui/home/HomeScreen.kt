@@ -30,11 +30,17 @@ import com.neri.exiftools.ui.theme.OnriGlassCard
 import com.neri.exiftools.ui.theme.OnriPomDivider
 import com.neri.exiftools.ui.theme.OnriStage
 import com.neri.exiftools.ui.theme.OnriXClip
+import com.neri.exiftools.ui.SaveLocationSection
+import com.neri.exiftools.util.SaveLocation
 
 @Composable
 fun HomeScreen(
     isLoading: Boolean,
+    saveLocation: SaveLocation,
     onPickImage: () -> Unit,
+    onApplySavePath: (String) -> Unit,
+    onPickSaveFolder: () -> Unit,
+    onResetSaveLocation: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
     OnriStage(mascotAlpha = 0.48f) {
@@ -134,9 +140,17 @@ fun HomeScreen(
                 Text(if (isLoading) "音理正在翻看…" else "选择图片")
             }
 
+            Spacer(Modifier.height(18.dp))
+            SaveLocationSection(
+                location = saveLocation,
+                enabled = !isLoading,
+                onApplyPath = onApplySavePath,
+                onPickFolder = onPickSaveFolder,
+                onReset = onResetSaveLocation,
+            )
             Spacer(Modifier.weight(1f))
             Text(
-                text = "v1.1",
+                text = "v1.2",
                 style = MaterialTheme.typography.titleSmall,
                 color = scheme.primary,
                 textAlign = TextAlign.Center,

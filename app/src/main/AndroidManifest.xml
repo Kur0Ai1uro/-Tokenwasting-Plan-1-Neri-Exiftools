@@ -24,6 +24,9 @@
             <data android:mimeType="image/*" />
         </intent>
         <intent>
+            <action android:name="android.intent.action.OPEN_DOCUMENT_TREE" />
+        </intent>
+        <intent>
             <action android:name="android.provider.action.PICK_IMAGES" />
         </intent>
     </queries>

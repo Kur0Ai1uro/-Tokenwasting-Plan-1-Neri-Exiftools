@@ -5,8 +5,11 @@ import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.DocumentsContract
 import android.provider.MediaStore
 import com.neri.exiftools.model.ImageFormat
+import com.neri.exiftools.util.SaveLocation
+import com.neri.exiftools.util.SavePathRules
 import java.io.File
 import java.io.IOException
 import java.text.SimpleDateFormat
@@ -28,17 +31,29 @@ class BackupManager(private val context: Context) {
         return BackupResult(uri = uri, displayName = fileName)
     }
 
-    fun saveEditedCopy(source: File, displayName: String, format: ImageFormat): BackupResult {
+    fun saveEditedCopy(
+        source: File,
+        displayName: String,
+        format: ImageFormat,
+        location: SaveLocation = SaveLocation(),
+    ): BackupResult {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val safeName = displayName.substringBeforeLast('.').ifBlank { "image" }
         val fileName = "edited_${stamp}_$safeName.${format.extension}"
+        val tree = location.treeUri?.takeIf { it.isNotBlank() }?.let(Uri::parse)
+        if (tree != null) {
+            val uri = createInTree(tree, fileName, format.mimeType)
+            writeFileToUri(source, uri)
+            return BackupResult(uri = uri, displayName = fileName, savedPath = location.displayLabel())
+        }
+        val relative = SavePathRules.normalize(location.relativePath) ?: SavePathRules.DEFAULT
         val uri = insertImage(
             fileName = fileName,
             mimeType = format.mimeType,
-            relativePath = "$PICTURES_DIR/$EDITED_DIR",
-        ) ?: throw IOException("无法另存为新图片")
+            relativePath = relative,
+        ) ?: throw IOException("音理在 $relative 里建不了新文件")
         writeFileToUri(source, uri)
-        return BackupResult(uri = uri, displayName = fileName)
+        return BackupResult(uri = uri, displayName = fileName, savedPath = relative)
     }
 
     private fun insertImage(fileName: String, mimeType: String, relativePath: String): Uri? {
@@ -55,8 +70,19 @@ class BackupManager(private val context: Context) {
             return uri
         }
 
-        val pictures = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
-        val folder = File(pictures, relativePath.removePrefix("${Environment.DIRECTORY_PICTURES}/"))
+        val picturesRoot = relativePath.substringBefore('/')
+        val nested = relativePath.substringAfter('/', "")
+        val base = when (picturesRoot) {
+            "DCIM" -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DCIM)
+            "Download" -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            "Movies" -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES)
+            else -> Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
+        }
+        val folder = File(base, if (picturesRoot == "Pictures" || picturesRoot !in STORAGE_ROOTS) {
+            relativePath.removePrefix("Pictures/")
+        } else {
+            nested
+        })
         if (!folder.exists() && !folder.mkdirs()) {
             throw IOException("无法创建备份目录")
         }
@@ -69,12 +95,24 @@ class BackupManager(private val context: Context) {
         return resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
     }
 
+    private fun createInTree(tree: Uri, fileName: String, mimeType: String): Uri {
+        val resolver = context.contentResolver
+        val parent = DocumentsContract.buildDocumentUriUsingTree(
+            tree,
+            DocumentsContract.getTreeDocumentId(tree),
+        )
+        return DocumentsContract.createDocument(resolver, parent, mimeType, fileName)
+            ?: throw IOException("音理在这个文件夹里建不了新文件")
+    }
+
     private fun writeFileToUri(source: File, uri: Uri) {
         val resolver = context.contentResolver
         resolver.openOutputStream(uri, "w")?.use { output ->
             source.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
         } ?: throw IOException("无法写入备份文件")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            (uri.authority == MediaStore.AUTHORITY || uri.authority == "media")
+        ) {
             val done = ContentValues().apply {
                 put(MediaStore.Images.Media.IS_PENDING, 0)
             }
@@ -85,11 +123,12 @@ class BackupManager(private val context: Context) {
     data class BackupResult(
         val uri: Uri,
         val displayName: String,
+        val savedPath: String = "",
     )
 
     private companion object {
         const val PICTURES_DIR = "Pictures"
         const val BACKUP_DIR = "NeriExifTools/Backup"
-        const val EDITED_DIR = "NeriExifTools/Edited"
+        val STORAGE_ROOTS = setOf("Pictures", "DCIM", "Download", "Movies")
     }
 }
